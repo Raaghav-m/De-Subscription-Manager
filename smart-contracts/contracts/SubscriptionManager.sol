@@ -1,174 +1,107 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-error InsufficientBalance(uint256 available, uint256 required, bytes32 name);
-error SubscriptionNotFound(bytes32 name);
-error Unauthorized();
-
-contract SubscriptionManager {
-    struct Subscription {
-        address recipientAddress;
+contract PeriodicPaymentManager {
+    struct PaymentSchedule {
+        address recipient;
         uint256 amount;
-        uint256 interval;
-        uint256 nextSchedule;
-        bool isActive;
+        uint256 frequency; // seconds (weekly: 1 week, monthly: 1 month, yearly: 1 year)
+        uint256 totalLimit;
+        uint256 nextPaymentTime;
+        uint256 totalPaid;
     }
 
-    address public owner;
-    uint256 public feePercentage;
+    mapping(address => PaymentSchedule[]) public userSchedules;
 
-    mapping(address => mapping(bytes32 => Subscription)) private subscriptions;
-    mapping(address => bytes32[]) private subscriptionNames; // Track user subscription names
-    mapping(address => uint256) private balances;
-
-    event SubscriptionAdded(
+    event PaymentScheduled(
         address indexed user,
-        bytes32 name,
-        address recipient,
-        uint256 amount
+        address indexed recipient,
+        uint256 amount,
+        uint256 frequency,
+        uint256 totalLimit
     );
+    
     event PaymentExecuted(
         address indexed user,
-        address recipient,
-        uint256 amount,
-        uint256 fee
+        address indexed recipient,
+        uint256 amount
     );
-    event SubscriptionModified(
-        address indexed user,
-        bytes32 name,
-        uint256 amount,
-        uint256 interval
-    );
-    event BalanceFunded(address indexed user, uint256 amount);
-    event SubscriptionDeleted(address indexed user, bytes32 name);
-    event FeeUpdated(uint256 newFee);
 
-    constructor(uint256 _feePercentage) {
-        require(_feePercentage <= 100, "Invalid fee percentage");
-        owner = msg.sender;
-        feePercentage = _feePercentage;
-    }
+    function createPaymentSchedule(
+        address _recipient,
+        uint256 _amount,
+        string memory _frequency,
+        uint256 _totalLimit
+    ) external payable {
+        require(msg.value >= _totalLimit, "Insufficient funds sent.");
+        
+        uint256 frequencyInSeconds;
+        if (keccak256(abi.encodePacked(_frequency)) == keccak256("weekly")) {
+            frequencyInSeconds = 7 * 24 * 60 * 60; // 1 week in seconds
+        } else if (keccak256(abi.encodePacked(_frequency)) == keccak256("monthly")) {
+            frequencyInSeconds = 30 * 24 * 60 * 60; // 1 month in seconds (approx)
+        } else if (keccak256(abi.encodePacked(_frequency)) == keccak256("yearly")) {
+            frequencyInSeconds = 365 * 24 * 60 * 60; // 1 year in seconds (approx)
+        } else {
+            revert("Invalid frequency. Choose 'weekly', 'monthly', or 'yearly'.");
+        }
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
-        _;
-    }
+        // Calculate next payment time based on current block timestamp
+        uint256 nextPaymentTime = block.timestamp + frequencyInSeconds;
 
-    // Add a new subscription
-    function addSubscription(
-        bytes32 name,
-        address recipientAddress,
-        uint256 amount,
-        uint256 interval
-    ) external {
-        require(recipientAddress != address(0), "Invalid recipient address");
-        require(amount > 0, "Amount must be greater than 0");
-        require(interval > 0, "Interval must be greater than 0");
-
-        Subscription storage sub = subscriptions[msg.sender][name];
-        require(
-            sub.recipientAddress == address(0),
-            "Subscription already exists"
-        );
-
-        subscriptions[msg.sender][name] = Subscription({
-            recipientAddress: recipientAddress,
-            amount: amount,
-            interval: interval,
-            nextSchedule: block.timestamp + interval,
-            isActive: true
+        PaymentSchedule memory newSchedule = PaymentSchedule({
+            recipient: _recipient,
+            amount: _amount,
+            frequency: frequencyInSeconds,
+            totalLimit: _totalLimit,
+            nextPaymentTime: nextPaymentTime,
+            totalPaid: 0
         });
 
-        subscriptionNames[msg.sender].push(name); // Track subscription name
-        emit SubscriptionAdded(msg.sender, name, recipientAddress, amount);
+        userSchedules[msg.sender].push(newSchedule);
+
+        emit PaymentScheduled(msg.sender, _recipient, _amount, frequencyInSeconds, _totalLimit);
     }
 
-    // Execute all due payments for a user
-    function executePayments(address user) external {
-        bytes32[] storage names = subscriptionNames[user];
+    function executePayments() external {
+        PaymentSchedule[] storage schedules = userSchedules[msg.sender];
+        for (uint256 i = 0; i < schedules.length; i++) {
+            PaymentSchedule storage schedule = schedules[i];
+            // Check if the current block timestamp is past the next payment time
+            if (
+                block.timestamp >= schedule.nextPaymentTime &&
+                schedule.totalPaid + schedule.amount <= schedule.totalLimit
+            ) {
+                // Update next payment time for the next interval
+                schedule.nextPaymentTime += schedule.frequency;
+                schedule.totalPaid += schedule.amount;
 
-        for (uint256 i = 0; i < names.length; i++) {
-            Subscription storage sub = subscriptions[user][names[i]];
-            if (!sub.isActive || block.timestamp < sub.nextSchedule) continue;
+                (bool success, ) = schedule.recipient.call{value: schedule.amount}("");
+                require(success, "Payment failed"); // Throws if payment fails
 
-            uint256 fee = (sub.amount * feePercentage) / 100;
-            uint256 totalAmount = sub.amount + fee;
-
-            if (balances[user] < totalAmount) {
-                revert InsufficientBalance(
-                    balances[user],
-                    totalAmount,
-                    names[i]
-                );
-            }
-
-            balances[user] -= totalAmount;
-
-            (bool success, ) = sub.recipientAddress.call{value: sub.amount}("");
-            if (success) {
-                payable(owner).transfer(fee);
-                sub.nextSchedule += sub.interval;
-                emit PaymentExecuted(
-                    user,
-                    sub.recipientAddress,
-                    sub.amount,
-                    fee
-                );
-            } else {
-                balances[user] += totalAmount; // Refund on failure
-            }
+                emit PaymentExecuted(msg.sender, schedule.recipient, schedule.amount);
+            } 
         }
     }
 
-    // Delete a subscription
-    function deleteSubscription(bytes32 name) external {
-        Subscription storage sub = _getSubscription(msg.sender, name);
-        delete subscriptions[msg.sender][name];
-
-        // Remove name from tracking array
-        _removeSubscriptionName(msg.sender, name);
-
-        emit SubscriptionDeleted(msg.sender, name);
+    function getUserSchedules(address _user) external view returns (PaymentSchedule[] memory) {
+        return userSchedules[_user];
     }
 
-    // Helper to remove subscription name from the tracking array
-    function _removeSubscriptionName(address user, bytes32 name) internal {
-        bytes32[] storage names = subscriptionNames[user];
-        for (uint256 i = 0; i < names.length; i++) {
-            if (names[i] == name) {
-                names[i] = names[names.length - 1]; // Replace with last element
-                names.pop(); // Remove last element
-                break;
-            }
+    // Add function for user to withdraw unused funds from the contract
+    function withdrawUnusedFunds() external {
+        uint256 totalBalance = address(this).balance;
+        uint256 usedFunds = 0;
+        
+        PaymentSchedule[] storage schedules = userSchedules[msg.sender];
+        for (uint256 i = 0; i < schedules.length; i++) {
+            usedFunds += schedules[i].totalPaid;
         }
-    }
 
-    // Retrieve a subscription
-    function _getSubscription(
-        address user,
-        bytes32 name
-    ) internal view returns (Subscription storage) {
-        Subscription storage sub = subscriptions[user][name];
-        if (sub.recipientAddress == address(0))
-            revert SubscriptionNotFound(name);
-        return sub;
-    }
+        uint256 withdrawableAmount = totalBalance - usedFunds;
+        require(withdrawableAmount > 0, "No funds available for withdrawal");
 
-    // Update the fee percentage (only owner)
-    function updateFee(uint256 newFee) external onlyOwner {
-        require(newFee <= 100, "Invalid fee percentage");
-        feePercentage = newFee;
-        emit FeeUpdated(newFee);
-    }
-
-    // View user balance
-    function viewUserBalance(address user) external view returns (uint256) {
-        return balances[user];
-    }
-
-    // Fund user balance
-    receive() external payable {
-        balances[msg.sender] += msg.value;
-        emit BalanceFunded(msg.sender, msg.value);
+        (bool success, ) = msg.sender.call{value: withdrawableAmount}("");
+        require(success, "Withdrawal failed");
     }
 }
