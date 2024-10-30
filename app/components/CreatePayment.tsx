@@ -1,16 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
+import { Input } from "./ui/input";
+import { Button } from "./ui/button";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from ".//ui/select";
 import {
   AlertCircle,
   Clock,
@@ -18,18 +18,38 @@ import {
   ArrowRight,
   ArrowLeft,
 } from "lucide-react";
-import { Progress } from "@/components/ui/progress";
+import { Progress } from ".//ui/progress";
 
-export default function CreatePaymentSchedule() {
+// Add this interface at the top of your CreatePayment.tsx file
+interface CreatePaymentScheduleProps {
+  userAddr: string | null;
+}
+
+// Update your component declaration
+export default function CreatePaymentSchedule({
+  userAddr,
+}: CreatePaymentScheduleProps) {
   const [formData, setFormData] = useState({
     recipient: "",
     amount: "",
     frequency: "monthly",
     totalLimit: "",
-    token: "ETH",
+    token: "ETH" as "ETH" | "DAI" | "USDC",
   });
+  const cryptoIds = {
+    ETH: "eth-ethereum",
+    DAI: "dai-dai",
+    USDC: "usdc-usd-coin",
+  };
+  const tokenAddresses = {
+    ETH: "0xfff9976782d46cc05630d1f6ebab18b2324d6b14",
+    DAI: "0x68194a729C2450ad26072b3D33ADaCbcef39D574",
+    USDC: "0xf08A50178dfcDe18524640EA6618a1f965821715",
+  };
 
   const [step, setStep] = useState(1);
+  const [conversionPrice, setConversionPrice] = useState(0);
+  const quoteUrl = "https://api.odos.xyz/sor/quote/v2";
 
   const calculateTotalPayments = () => {
     const frequencies = {
@@ -68,6 +88,60 @@ export default function CreatePaymentSchedule() {
         return formData.frequency && formData.totalLimit;
       default:
         return true;
+    }
+  };
+  const handleCreateSchedule = async () => {
+    const quoteUrl = "https://api.odos.xyz/sor/quote/v2";
+
+    const quoteRequestBody = {
+      chainId: 11155111, // Replace with desired chainId
+      inputTokens: [
+        {
+          tokenAddress: "0xfff9976782d46cc05630d1f6ebab18b2324d6b14", // checksummed input token address
+          amount: "100000", // input amount as a string in fixed integer precision
+        },
+      ],
+      outputTokens: [
+        {
+          tokenAddress: "0xf08A50178dfcDe18524640EA6618a1f965821715", // checksummed output token address
+          proportion: 1,
+        },
+      ],
+      userAddr: "0xcBE66646C0450d75957F726cF99dAD471916933B", // checksummed user address
+      slippageLimitPercent: 0.3, // set your slippage limit percentage (1 = 1%),
+      referralCode: 0, // referral code (recommended)
+      disableRFQs: true,
+      compact: true,
+    };
+
+    const response = await fetch(quoteUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(quoteRequestBody),
+    });
+
+    if (response.status === 200) {
+      const quote = await response.json();
+      // handle quote response data
+    } else {
+      console.error("Error in Quote:", response);
+      // handle quote failure cases
+    }
+  };
+  const getConversionPrice = async () => {
+    console.log("Create schedule:", formData);
+    const cryptoId = cryptoIds[formData.token];
+    console.log(cryptoId);
+    try {
+      const response = await fetch(
+        `https://api.coinpaprika.com/v1/tickers/${cryptoId}`
+      );
+      const data = await response.json();
+
+      console.log(`Current Price of Bitcoin: ${data.quotes.USD.price}`);
+      setConversionPrice(data.quotes.USD.price);
+    } catch (error) {
+      console.error("Error fetching Bitcoin price:", error);
     }
   };
 
@@ -217,6 +291,9 @@ export default function CreatePaymentSchedule() {
               You'll need to approve this transaction and deposit{" "}
               {formData.totalLimit} {formData.token} to create this payment
               schedule.
+              <br />
+              This amount will be converted to PYUSD at the current price of{" "}
+              {conversionPrice}
             </p>
           </div>
         </div>
@@ -235,11 +312,13 @@ export default function CreatePaymentSchedule() {
         )}
         <Button
           onClick={() => {
-            if (step < 3) {
+            if (step === 1) {
+              setStep(step + 1);
+            } else if (step === 2) {
+              getConversionPrice();
               setStep(step + 1);
             } else {
-              // Handle contract interaction here
-              console.log("Create schedule:", formData);
+              handleCreateSchedule();
             }
           }}
           disabled={!isStepValid()}
