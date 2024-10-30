@@ -19,6 +19,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import { Progress } from ".//ui/progress";
+import Swap from "./Swap";
 
 // Add this interface at the top of your CreatePayment.tsx file
 interface CreatePaymentScheduleProps {
@@ -26,9 +27,7 @@ interface CreatePaymentScheduleProps {
 }
 
 // Update your component declaration
-export default function CreatePaymentSchedule({
-  userAddr,
-}: CreatePaymentScheduleProps) {
+export default function CreatePaymentSchedule() {
   const [formData, setFormData] = useState({
     recipient: "",
     amount: "",
@@ -85,49 +84,14 @@ export default function CreatePaymentSchedule({
       case 1:
         return formData.recipient && formData.amount && formData.token;
       case 2:
+        return true;
+      case 3:
         return formData.frequency && formData.totalLimit;
       default:
         return true;
     }
   };
-  const handleCreateSchedule = async () => {
-    const quoteUrl = "https://api.odos.xyz/sor/quote/v2";
-
-    const quoteRequestBody = {
-      chainId: 11155111, // Replace with desired chainId
-      inputTokens: [
-        {
-          tokenAddress: "0xfff9976782d46cc05630d1f6ebab18b2324d6b14", // checksummed input token address
-          amount: "100000", // input amount as a string in fixed integer precision
-        },
-      ],
-      outputTokens: [
-        {
-          tokenAddress: "0xf08A50178dfcDe18524640EA6618a1f965821715", // checksummed output token address
-          proportion: 1,
-        },
-      ],
-      userAddr: "0xcBE66646C0450d75957F726cF99dAD471916933B", // checksummed user address
-      slippageLimitPercent: 0.3, // set your slippage limit percentage (1 = 1%),
-      referralCode: 0, // referral code (recommended)
-      disableRFQs: true,
-      compact: true,
-    };
-
-    const response = await fetch(quoteUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(quoteRequestBody),
-    });
-
-    if (response.status === 200) {
-      const quote = await response.json();
-      // handle quote response data
-    } else {
-      console.error("Error in Quote:", response);
-      // handle quote failure cases
-    }
-  };
+ 
   const getConversionPrice = async () => {
     console.log("Create schedule:", formData);
     const cryptoId = cryptoIds[formData.token];
@@ -147,7 +111,7 @@ export default function CreatePaymentSchedule({
 
   return (
     <div className="p-4">
-      <Progress value={(step / 3) * 100} className="mb-6" />
+      <Progress value={(step / 4) * 100} className="mb-6" />
 
       {step === 1 && (
         <div className="space-y-4">
@@ -207,6 +171,15 @@ export default function CreatePaymentSchedule({
       )}
 
       {step === 2 && (
+        <div className="space-y-4 ">
+          <h3 className="text-lg font-medium mb-4">
+            Convert Receiver's Token (Optional)
+          </h3>
+          <Swap token={formData.token} amount={formData.amount} />
+        </div>
+      )}
+
+      {step === 3 && (
         <div className="space-y-4">
           <div>
             <label
@@ -249,7 +222,7 @@ export default function CreatePaymentSchedule({
         </div>
       )}
 
-      {step === 3 && (
+      {step === 4 && (
         <div className="space-y-4">
           <h3 className="text-lg font-medium">Review Payment Schedule</h3>
 
@@ -312,19 +285,17 @@ export default function CreatePaymentSchedule({
         )}
         <Button
           onClick={() => {
-            if (step === 1) {
+            if (step === 1 || step === 2) {
               setStep(step + 1);
-            } else if (step === 2) {
+            } else if (step === 3) {
               getConversionPrice();
               setStep(step + 1);
-            } else {
-              handleCreateSchedule();
-            }
+            } 
           }}
           disabled={!isStepValid()}
           className="ml-auto flex items-center gap-2"
         >
-          {step === 3 ? (
+          {step === 4 ? (
             <>
               <Wallet className="w-4 h-4" />
               Create Schedule

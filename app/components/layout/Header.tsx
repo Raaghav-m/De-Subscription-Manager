@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTrigger } from "../ui/dialog";
 import CreatePaymentSchedule from "../CreatePayment";
+import ConnectButton from "../ConnectButton";
 export function Header() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [account, setAccount] = useState<string | null>(null);
@@ -95,36 +96,7 @@ export function Header() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="outline"
-                className="flex items-center space-x-2 "
-                onClick={connectWallet}
-              >
-                <Wallet className="h-4 w-4" />
-                <span className="hidden md:inline">
-                  {account || "Connect Wallet"}
-                </span>
-                {account && <ChevronDown className="h-4 w-4" />}
-              </Button>
-            </DropdownMenuTrigger>
-            {account && (
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Wallet</DropdownMenuLabel>
-                <DropdownMenuItem
-                  onClick={() => navigator.clipboard.writeText(account || "")}
-                >
-                  Copy Address
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={disconnectWallet}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Disconnect</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            )}
-          </DropdownMenu>
+          <ConnectButton />
         </div>
       </div>
     </header>
