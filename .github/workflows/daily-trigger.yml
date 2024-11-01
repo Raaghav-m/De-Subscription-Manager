@@ -1,0 +1,28 @@
+name: Daily QuickNode Trigger
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every day
+    - cron: '0 0 * * *'
+
+jobs:
+  trigger-function:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Run curl command to trigger QuickNode Function
+      env:
+        QUICKNODE_API_KEY: ${{ secrets.QUICKNODE_API_KEY }}
+      run: |
+        curl -X POST "https://api.quicknode.com/functions/rest/v1/functions/ebf78065-e6f7-4bb7-a3b5-d8d8ae5c1fe2/call?result_only=true" \
+          -H "accept: application/json" \
+          -H "Content-Type: application/json" \
+          -H "x-api-key: QN_f67589ad7af14d4385e564f0445a903c" \
+          -d '{
+                "network": "polygon-amoy",
+                "dataset": "block",
+                "blockNumber": 19532341,
+                "user_data": {
+                  "max_fee": 8.5
+                }
+              }'
